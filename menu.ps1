@@ -1,5 +1,6 @@
 # menu.ps1 - Fullscreen galaxy login menu
-
+Write-Host "VERSIE 2 - galaxy fullscreen" -ForegroundColor Yellow
+Start-Sleep 1
 $ErrorActionPreference = "Stop"
 $esc   = [char]27
 $reset = "$esc[0m"
