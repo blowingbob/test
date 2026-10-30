@@ -1,7 +1,11 @@
-# menu.ps1 - Galaxy login menu
+# menu.ps1 - Fullscreen galaxy login menu
+
 $ErrorActionPreference = "Stop"
 $esc   = [char]27
 $reset = "$esc[0m"
+$bgBlk = "$esc[40m"
+$white = "$esc[37m"
+$bright= "$esc[97m"
 
 $dataDir   = Join-Path $env:APPDATA "GalaxyMenu"
 $usersFile = Join-Path $dataDir "users.json"
@@ -31,38 +35,62 @@ function Save-Users($u) {
     $u | ConvertTo-Json -Depth 5 | Set-Content $usersFile -Encoding UTF8
 }
 
-function Show-Galaxy {
-    param([string]$Subtitle = "")
-    $w = 76
-    $lines = New-Object 'System.Collections.Generic.List[object]'
-    for ($y = 0; $y -lt 18; $y++) {
-        $chars = New-Object char[] $w
-        for ($i = 0; $i -lt $w; $i++) { $chars[$i] = ' ' }
-        $lines.Add($chars)
+function Clear-Line([int]$row) {
+    $w = [Console]::WindowWidth
+    [Console]::SetCursorPosition(0, $row)
+    Write-Host "$bgBlk$white$(' ' * ($w - 1))$reset" -NoNewline
+}
+
+function Clear-InputArea {
+    $H = [Console]::WindowHeight
+    for ($y = $H - 3; $y -lt $H; $y++) { Clear-Line $y }
+}
+
+function Draw-Galaxy {
+    param([string[]]$MenuLines, [string]$Subtitle = "")
+
+    $w = [Console]::WindowWidth
+    $H = [Console]::WindowHeight
+    if ($H -lt 14) { $H = 24 }
+    if ($w -lt 40) { $w = 80 }
+    $inputRows = 3
+    $starRows = $H - $inputRows
+
+    [Console]::CursorVisible = $false
+    [Console]::SetCursorPosition(0,0)
+
+    $sb = New-Object System.Text.StringBuilder
+    for ($y = 0; $y -lt $starRows; $y++) {
+        $line = New-Object char[] ($w - 1)
+        for ($i = 0; $i -lt ($w - 1); $i++) { $line[$i] = ' ' }
+        $n = [math]::Max(2, [int]($w * 0.03))
+        for ($s = 0; $s -lt $n; $s++) {
+            $r = Get-Random -Max 10
+            $ch = if ($r -lt 6) { '.' } elseif ($r -lt 9) { '*' } else { '+' }
+            $line[(Get-Random -Max ($w - 1))] = $ch
+        }
+        [void]$sb.Append("$bgBlk$white$(-join $line)$reset`n")
     }
-    $glyphs = @('.','*','+','·','✦','✧','⋆')
-    for ($i = 0; $i -lt 90; $i++) {
-        $x = Get-Random -Max $w
-        $y = Get-Random -Max 18
-        $lines[$y][$x] = ($glyphs | Get-Random)
+    Write-Host $sb.ToString() -NoNewline
+
+    for ($y = $starRows; $y -lt $H; $y++) { Clear-Line $y }
+
+    $allLines = @()
+    if ($Subtitle) { $allLines += ""; $allLines += $Subtitle; $allLines += "" }
+    $allLines += $MenuLines
+
+    $startY = [math]::Max(1, [int](($starRows - $allLines.Count) / 2))
+
+    $idx = 0
+    foreach ($line in $allLines) {
+        $y = $startY + $idx
+        if ($y -ge 0 -and $y -lt $starRows) {
+            $pad = [math]::Max(0, [int](($w - $line.Length) / 2))
+            [Console]::SetCursorPosition($pad, $y)
+            Write-Host "$bgBlk$bright$line$reset" -NoNewline
+        }
+        $idx++
     }
-    $palette = @("$esc[95m","$esc[35m","$esc[94m","$esc[34m","$esc[96m","$esc[36m","$esc[97m")
-    Write-Host ""
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        $c = $palette[$i % $palette.Count]
-        Write-Host "$c$(-join $lines[$i])$reset"
-    }
-    $title = "GALAXY"
-    $pad   = [math]::Max(0, [int](($w - $title.Length) / 2))
-    Write-Host ""
-    Write-Host (" " * $pad) -NoNewline
-    Write-Host "$esc[1;96m$title$reset"
-    if ($Subtitle) {
-        $pad2 = [math]::Max(0, [int](($w - $Subtitle.Length) / 2))
-        Write-Host (" " * $pad2) -NoNewline
-        Write-Host "$esc[90m$Subtitle$reset"
-    }
-    Write-Host ""
 }
 
 function Read-Password([string]$Prompt) {
@@ -72,68 +100,97 @@ function Read-Password([string]$Prompt) {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
+function Prompt([string]$Message) {
+    $H = [Console]::WindowHeight
+    Clear-InputArea
+    [Console]::CursorVisible = $true
+    [Console]::SetCursorPosition(2, $H - 2)
+    $r = Read-Host $Message
+    [Console]::CursorVisible = $false
+    return $r
+}
+
+function Prompt-Password([string]$Message) {
+    $H = [Console]::WindowHeight
+    Clear-InputArea
+    [Console]::CursorVisible = $true
+    [Console]::SetCursorPosition(2, $H - 2)
+    $r = Read-Password $Message
+    [Console]::CursorVisible = $false
+    return $r
+}
+
 function Register {
-    Clear-Host
-    Show-Galaxy "Registreren"
-    $u = Read-Host "Gebruikersnaam"
-    if ([string]::IsNullOrWhiteSpace($u)) { Write-Host "Ongeldig." -ForegroundColor Red; Start-Sleep 1; return }
+    Draw-Galaxy -MenuLines @("--- Registreren ---") -Subtitle ""
+    $u = Prompt "Nieuwe gebruikersnaam"
+    if ([string]::IsNullOrWhiteSpace($u)) { return }
     $users = Load-Users
-    if ($users.ContainsKey($u)) { Write-Host "Bestaat al." -ForegroundColor Red; Start-Sleep 1; return }
-    $p1 = Read-Password "Wachtwoord"
-    if ([string]::IsNullOrWhiteSpace($p1)) { Write-Host "Ongeldig." -ForegroundColor Red; Start-Sleep 1; return }
-    $p2 = Read-Password "Herhaal wachtwoord"
-    if ($p1 -ne $p2) { Write-Host "Wachtwoorden verschillen." -ForegroundColor Red; Start-Sleep 1; return }
+    if ($users.ContainsKey($u)) {
+        Clear-InputArea
+        [Console]::SetCursorPosition(2, [Console]::WindowHeight - 2)
+        Write-Host "Bestaat al." -ForegroundColor Red
+        Start-Sleep 1; return
+    }
+    $p1 = Prompt-Password "Wachtwoord"
+    if ([string]::IsNullOrWhiteSpace($p1)) { return }
+    $p2 = Prompt-Password "Herhaal wachtwoord"
+    if ($p1 -ne $p2) {
+        Clear-InputArea
+        [Console]::SetCursorPosition(2, [Console]::WindowHeight - 2)
+        Write-Host "Wachtwoorden verschillen." -ForegroundColor Red
+        Start-Sleep 1; return
+    }
     $users[$u] = @{ hash = (Get-Hash $p1); created = (Get-Date).ToString("o") }
     Save-Users $users
-    Write-Host "Account '$u' aangemaakt. Druk Enter..." -ForegroundColor Green
-    [void](Read-Host)
+    Clear-InputArea
+    [Console]::SetCursorPosition(2, [Console]::WindowHeight - 2)
+    Write-Host "Account '$u' aangemaakt." -ForegroundColor Green
+    Start-Sleep 1
 }
 
 function Login {
-    Clear-Host
-    Show-Galaxy "Inloggen"
-    $u = Read-Host "Gebruikersnaam"
+    Draw-Galaxy -MenuLines @("--- Inloggen ---") -Subtitle ""
+    $u = Prompt "Gebruikersnaam"
     if ([string]::IsNullOrWhiteSpace($u)) { return $null }
-    $p = Read-Password "Wachtwoord"
+    $p = Prompt-Password "Wachtwoord"
     $users = Load-Users
-    if (-not $users.ContainsKey($u)) { Write-Host "Onbekende gebruiker." -ForegroundColor Red; Start-Sleep 1; return $null }
-    if ($users[$u].hash -ne (Get-Hash $p)) { Write-Host "Onjuist wachtwoord." -ForegroundColor Red; Start-Sleep 1; return $null }
+    if (-not $users.ContainsKey($u) -or $users[$u].hash -ne (Get-Hash $p)) {
+        Clear-InputArea
+        [Console]::SetCursorPosition(2, [Console]::WindowHeight - 2)
+        Write-Host "Onjuiste gegevens." -ForegroundColor Red
+        Start-Sleep 1; return $null
+    }
     return $u
 }
 
 function Main-Menu($user) {
     do {
-        Clear-Host
-        Show-Galaxy "Ingelogd als $user"
-        Write-Host "  [$esc[96m1$reset] Menu-item 1"
-        Write-Host "  [$esc[96m2$reset] Menu-item 2"
-        Write-Host "  [$esc[96m3$reset] Menu-item 3"
-        Write-Host "  [$esc[96mQ$reset] Uitloggen"
-        Write-Host ""
-        $k = Read-Host "Keuze"
+        Draw-Galaxy -MenuLines @(
+            "[1] Menu-item 1",
+            "[2] Menu-item 2",
+            "[3] Menu-item 3",
+            "[Q] Uitloggen"
+        ) -Subtitle "Ingelogd als $user"
+        $k = Prompt "Keuze"
         switch ($k.ToUpper()) {
-            "1" { Write-Host "Item 1 uitgevoerd."; Start-Sleep 1 }
-            "2" { Write-Host "Item 2 uitgevoerd."; Start-Sleep 1 }
-            "3" { Write-Host "Item 3 uitgevoerd."; Start-Sleep 1 }
+            "1" { }
+            "2" { }
+            "3" { }
             "Q" { }
-            default { Write-Host "Ongeldig." -ForegroundColor Red; Start-Sleep 1 }
         }
     } while ($k.ToUpper() -ne "Q")
 }
 
-# ---- Hoofdloop ----
 :main while ($true) {
-    Clear-Host
-    Show-Galaxy "Welkom"
-    Write-Host "  [$esc[96m1$reset] Inloggen"
-    Write-Host "  [$esc[96m2$reset] Registreren"
-    Write-Host "  [$esc[96mQ$reset] Stoppen"
-    Write-Host ""
-    $k = Read-Host "Keuze"
+    Draw-Galaxy -MenuLines @(
+        "[1] Inloggen",
+        "[2] Registreren",
+        "[Q] Stoppen"
+    )
+    $k = Prompt "Keuze"
     switch ($k.ToUpper()) {
         "1" { $u = Login; if ($u) { Main-Menu $u } }
         "2" { Register }
         "Q" { break main }
-        default { }
     }
 }
